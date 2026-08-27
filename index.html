@@ -582,10 +582,14 @@
         </div>
 
         <div class="bg-slate-900/90 p-4 rounded-xl border border-sky-500/30">
-          <div class="flex justify-between items-center mb-2">
-            <p class="text-xs text-sky-300 font-black">⚡ 1タップ打席・守備記録 (16項目対応)</p>
+          <div class="flex justify-between items-center mb-2 flex-wrap gap-2">
+            <p class="text-xs text-sky-300 font-black flex items-center gap-1.5">
+              ⚡ 1タップ打席・守備記録 (16項目対応)
+              <span id="pendingBatterCount" class="bg-amber-500 text-slate-950 text-[11px] font-black rounded-full px-2 py-0.5 min-w-[20px] text-center">0</span>
+              <span class="text-[10px] text-slate-400 font-bold">件 未登録</span>
+            </p>
             <button class="px-3 py-1 bg-rose-900/80 hover:bg-rose-800 text-rose-200 border border-rose-500/60 rounded-lg text-xs font-black shadow transition-colors flex items-center gap-1" onclick="undoLastAtBat()">
-              ↩️ 直近の打席記録を1件削除
+              ↩️ 直近の入力を1件取消
             </button>
           </div>
           <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -604,6 +608,22 @@
             <button class="powerpro-btn bg-teal-600 text-xs py-2.5" onclick="recordAtBat('得点')">🏃‍♂️ +1得点</button>
             <button class="powerpro-btn bg-blue-600 text-xs py-2.5" onclick="recordAtBat('守備機会')">🧤 守備機会+1</button>
             <button class="powerpro-btn bg-rose-800 text-xs py-2.5" onclick="recordAtBat('失策')">⚠️ エラー</button>
+          </div>
+
+          <!-- 📝 入力内容欄（未登録分のプレビュー：タップした結果がここに積み上がっていく） -->
+          <div class="mt-4 pt-3 border-t border-slate-700">
+            <div class="flex justify-between items-center mb-2 flex-wrap gap-2">
+              <p class="text-xs font-black text-amber-300">📝 入力内容（未登録・下の登録ボタンでスプレッドシートへ一括反映）</p>
+              <button class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 rounded-lg text-[11px] font-bold" onclick="clearPendingBatterQueue()">
+                🗑️ すべてクリア
+              </button>
+            </div>
+            <div id="pendingBatterQueueList" class="space-y-1 max-h-40 overflow-y-auto bg-slate-950 p-2 rounded-lg border border-slate-800">
+              <p class="text-slate-500 italic text-xs">まだ入力がありません。上のボタンをタップして記録を追加してください。</p>
+            </div>
+            <button class="powerpro-btn powerpro-btn-gold w-full mt-3 py-2.5 text-sm" onclick="registerBatterQueue()">
+              💾 打席・守備記録を登録・GAS送信（一括）
+            </button>
           </div>
         </div>
       </div>
@@ -1198,6 +1218,7 @@
 // ==========================================
 // 高千穂中学野球部 DB自動構築 & Web API (GAS)
 // 投球回分数表記(1/3, 2/3) & 16項目打撃・14項目投手・自動集計完全版
+// 🆕 recordAtBatBulk: 野手タップ入力の一括登録対応版
 // ==========================================
 
 const REGULATION_INNINGS = 7; // 中学野球の基本規定イニング (7回制)
@@ -1616,6 +1637,45 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({ status: "success", logId: logId })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // 🆕 野手タップ入力欄の「一括登録」用エンドポイント
+    // 入力内容欄に蓄積された複数件の打席・守備記録を1回のリクエストでまとめて書き込む
+    if (action === "recordAtBatBulk") {
+      const sheet = ss.getSheetByName(SHEETS.BATTING);
+      const records = postData.records || [];
+      const rows = records.map(function(rec, idx) {
+        const logId = "BAT_" + Utilities.formatDate(new Date(), "JST", "yyyyMMdd_HHmmss") + "_" + idx;
+        return [
+          logId,
+          new Date(),
+          rec.gameId || "直接入力",
+          rec.playerId,
+          rec.inning || "-",
+          rec.rispFlag || 0,
+          rec.result,
+          rec.hitType || "-",
+          rec.runs || 0,
+          rec.rbi || 0,
+          rec.so || 0,
+          rec.bb || 0,
+          rec.hbp || 0,
+          rec.sh || 0,
+          rec.sf || 0,
+          rec.stolenBases || 0,
+          rec.errors || 0,
+          rec.chances || 0,
+          rec.notes || "一括登録"
+        ];
+      });
+
+      if (rows.length > 0) {
+        // 1回の書き込みでまとめて反映（パフォーマンス最適化）
+        sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+      }
+
+      recalculateSummaries();
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", count: rows.length })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (action === "recordPitching") {
       const sheet = ss.getSheetByName(SHEETS.PITCHING);
       const logId = "PIT_" + Utilities.formatDate(new Date(), "JST", "yyyyMMdd_HHmmss");
@@ -1871,6 +1931,7 @@ let currentListMode = 'batter';
 let matchLogs = [];
 let recentBattingHistory = [];
 let recentPitchingHistory = [];
+let pendingBatterQueue = []; // 🆕 打席・守備記録の未登録入力キュー（タップで蓄積 → 登録ボタンでGASへ一括送信）
 
 // 登録されている試合リスト
 let matchGames = [
@@ -3182,216 +3243,186 @@ function showNotification(msg, isSuccess = true) {
   }, 3500);
 }
 
-function recordAtBat(result) {
-  const matchSelect = document.getElementById("matchSelect");
-  const matchId = matchSelect ? matchSelect.value : "20260810_三重";
-  
-  const batterSelect = document.getElementById("matchBatterSelect");
-  const selectedPlayerId = batterSelect ? parseInt(batterSelect.value) : null;
-  
-  const rispSelect = document.getElementById("matchRispSelect");
-  const rispFlag = rispSelect ? parseInt(rispSelect.value) : 0;
+// 🆕 タップした結果から差分オブジェクトを計算する（GAS送信もせず、player.statsも直接触らない）
+function getAtBatDelta(result) {
+  const delta = { pa:0, ab:0, h:0, double:0, triple:0, hr:0, r:0, rbi:0, so:0, bb:0, hbp:0, sh:0, sf:0, sb:0, e:0, tc:0 };
 
-  const player = players.find(p => p.id === selectedPlayerId);
+  if (["単打", "二塁打", "三塁打", "本塁打", "凡打", "三振"].includes(result)) {
+    delta.pa = 1;
+    delta.ab = 1;
+  }
+
+  if (result === '単打') {
+    delta.h = 1;
+  } else if (result === '二塁打') {
+    delta.h = 1; delta.double = 1;
+  } else if (result === '三塁打') {
+    delta.h = 1; delta.triple = 1;
+  } else if (result === '本塁打') {
+    delta.h = 1; delta.hr = 1;
+  } else if (result === '四球') {
+    delta.pa = 1; delta.bb = 1;
+  } else if (result === '死球') {
+    delta.pa = 1; delta.hbp = 1;
+  } else if (result === '三振') {
+    delta.so = 1;
+  } else if (result === '犠打') {
+    delta.pa = 1; delta.sh = 1;
+  } else if (result === '犠飛') {
+    delta.pa = 1; delta.sf = 1;
+  } else if (result === '盗塁') {
+    delta.sb = 1;
+  } else if (result === '打点') {
+    delta.rbi = 1;
+  } else if (result === '得点') {
+    delta.r = 1;
+  } else if (result === '守備機会') {
+    delta.tc = 1;
+  } else if (result === '失策') {
+    delta.e = 1; delta.tc = 1;
+  }
+
+  return delta;
+}
+
+// 🆕 タップ操作：即GAS送信はせず、入力内容欄（未登録キュー）に積み上げるだけ
+function recordAtBat(result) {
+  const batterSelect = document.getElementById("matchBatterSelect");
+  const selectedId = batterSelect ? parseInt(batterSelect.value) : null;
+
+  const player = players.find(p => p.id === selectedId);
   if (!player) {
     showNotification("対象選手を選択してください", false);
     return;
   }
 
-  if (!player.stats) {
-    player.stats = { pa:0, ab:0, h:0, double:0, triple:0, hr:0, r:0, rbi:0, so:0, bb:0, hbp:0, sh:0, sf:0, sb:0, e:0, tc:0 };
-  }
+  const rispSelect = document.getElementById("matchRispSelect");
+  const rispFlag = rispSelect ? parseInt(rispSelect.value) : 0;
 
-  let runs = 0, rbi = 0, so = 0, bb = 0, hbp = 0, sh = 0, sf = 0, sb = 0, e = 0, tc = 0;
+  const delta = getAtBatDelta(result);
 
-  if (["単打", "二塁打", "三塁打", "本塁打", "凡打", "三振"].includes(result)) {
-    player.stats.pa = (player.stats.pa || 0) + 1;
-    player.stats.ab = (player.stats.ab || 0) + 1;
-  }
-
-  if (result === '単打') {
-    player.stats.h = (player.stats.h || 0) + 1;
-  } else if (result === '二塁打') {
-    player.stats.h = (player.stats.h || 0) + 1;
-    player.stats.double = (player.stats.double || 0) + 1;
-  } else if (result === '三塁打') {
-    player.stats.h = (player.stats.h || 0) + 1;
-    player.stats.triple = (player.stats.triple || 0) + 1;
-  } else if (result === '本塁打') {
-    player.stats.h = (player.stats.h || 0) + 1;
-    player.stats.hr = (player.stats.hr || 0) + 1;
-  } else if (result === '四球') {
-    player.stats.pa = (player.stats.pa || 0) + 1;
-    player.stats.bb = (player.stats.bb || 0) + 1;
-    bb = 1;
-  } else if (result === '死球') {
-    player.stats.pa = (player.stats.pa || 0) + 1;
-    player.stats.hbp = (player.stats.hbp || 0) + 1;
-    hbp = 1;
-  } else if (result === '三振') {
-    player.stats.so = (player.stats.so || 0) + 1;
-    so = 1;
-  } else if (result === '犠打') {
-    player.stats.pa = (player.stats.pa || 0) + 1;
-    player.stats.sh = (player.stats.sh || 0) + 1;
-    sh = 1;
-  } else if (result === '犠飛') {
-    player.stats.pa = (player.stats.pa || 0) + 1;
-    player.stats.sf = (player.stats.sf || 0) + 1;
-    sf = 1;
-  } else if (result === '盗塁') {
-    player.stats.sb = (player.stats.sb || 0) + 1;
-    sb = 1;
-  } else if (result === '打点') {
-    player.stats.rbi = (player.stats.rbi || 0) + 1;
-    rbi = 1;
-  } else if (result === '得点') {
-    player.stats.r = (player.stats.r || 0) + 1;
-    runs = 1;
-  } else if (result === '守備機会') {
-    player.stats.tc = (player.stats.tc || 0) + 1;
-    tc = 1;
-  } else if (result === '失策') {
-    player.stats.e = (player.stats.e || 0) + 1;
-    player.stats.tc = (player.stats.tc || 0) + 1;
-    e = 1; tc = 1;
-  }
-
-  if (player.stats.ab > 0) {
-    player.bat = player.stats.h / player.stats.ab;
-    const obpDenominator = player.stats.ab + (player.stats.bb || 0) + (player.stats.hbp || 0) + (player.stats.sf || 0);
-    const obp = obpDenominator > 0 ? (player.stats.h + (player.stats.bb || 0) + (player.stats.hbp || 0)) / obpDenominator : 0;
-    const tb = player.stats.h + (player.stats.double || 0) + ((player.stats.triple || 0) * 2) + ((player.stats.hr || 0) * 3);
-    const slg = tb / player.stats.ab;
-    player.ops = obp + slg;
-  }
-
-  recentBattingHistory.unshift({
+  pendingBatterQueue.push({
+    qid: 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
     playerId: player.id,
+    playerName: player.name,
     result: result,
-    runs: runs,
-    rbi: rbi,
-    so: so,
-    bb: bb,
-    hbp: hbp,
-    sh: sh,
-    sf: sf,
-    sb: sb,
-    e: e,
-    tc: tc
+    rispFlag: rispFlag,
+    delta: delta
   });
 
-  renderOrderView();
-
-  const syncStatus = gasUrl ? "🌐 クラウド保存" : "💾 ローカル保存";
-  const logItem = `[${new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}] ${player.name} ➔ ${result} (${syncStatus})`;
-  matchLogs.unshift(logItem);
-
-  const logContainer = document.getElementById("matchLogList");
-  if (logContainer) {
-    logContainer.innerHTML = matchLogs.map(l => `<div class="p-1.5 bg-slate-800 rounded border border-slate-700 font-mono">${l}</div>`).join("");
-  }
-
-  if (gasUrl) {
-    fetch(gasUrl, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "recordAtBat",
-        gameId: matchId,
-        playerId: player.id,
-        rispFlag: rispFlag,
-        result: result,
-        runs: runs,
-        rbi: rbi,
-        so: so,
-        bb: bb,
-        hbp: hbp,
-        sh: sh,
-        sf: sf,
-        stolenBases: sb,
-        errors: e,
-        chances: tc
-      })
-    }).then(() => {
-      showNotification(`${player.name} の「${result}」をスプレッドシートに蓄積保存しました！`);
-    }).catch(err => {
-      showNotification("スプレッドシートへの通信に失敗しました", false);
-    });
-  } else {
-    showNotification(`${player.name} の「${result}」をアプリ内記録しました (GAS未連携)`);
-  }
+  renderPendingBatterQueue();
+  showNotification(`「${result}」を入力欄に追加しました（${player.name}）※まだ登録されていません`);
 }
 
-function undoLastAtBat() {
-  if (recentBattingHistory.length === 0) {
-    showNotification("取り消し可能な直近の打席記録がありません", false);
+// 🆕 未登録キューの表示更新
+function renderPendingBatterQueue() {
+  const countBadge = document.getElementById("pendingBatterCount");
+  if (countBadge) countBadge.innerText = pendingBatterQueue.length;
+
+  const container = document.getElementById("pendingBatterQueueList");
+  if (!container) return;
+
+  if (pendingBatterQueue.length === 0) {
+    container.innerHTML = `<p class="text-slate-500 italic text-xs">まだ入力がありません。上のボタンをタップして記録を追加してください。</p>`;
     return;
   }
 
-  const lastRecord = recentBattingHistory.shift();
-  const player = players.find(p => p.id === lastRecord.playerId);
+  container.innerHTML = pendingBatterQueue.map((item, idx) => `
+    <div class="flex items-center justify-between bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs">
+      <span class="font-bold text-amber-300 w-5 flex-shrink-0">${idx + 1}.</span>
+      <span class="font-black text-white flex-1 px-1 truncate">${item.playerName}</span>
+      <span class="font-bold text-sky-300 px-2 whitespace-nowrap">${item.result}</span>
+      ${item.rispFlag ? '<span class="text-[10px] text-rose-300 border border-rose-500/50 rounded px-1 mr-1 whitespace-nowrap">得点圏</span>' : ''}
+      <button onclick="removePendingBatterItem('${item.qid}')" class="text-rose-400 hover:text-rose-300 font-black px-1.5 flex-shrink-0">✕</button>
+    </div>
+  `).join("");
+}
 
-  if (player && player.stats) {
-    if (["単打", "二塁打", "三塁打", "本塁打", "凡打", "三振"].includes(lastRecord.result)) {
-      player.stats.pa = Math.max(0, (player.stats.pa || 1) - 1);
-      player.stats.ab = Math.max(0, (player.stats.ab || 1) - 1);
-    }
+// 🆕 入力内容欄の個別削除
+function removePendingBatterItem(qid) {
+  pendingBatterQueue = pendingBatterQueue.filter(item => item.qid !== qid);
+  renderPendingBatterQueue();
+}
 
-    if (lastRecord.result === '単打') {
-      player.stats.h = Math.max(0, (player.stats.h || 1) - 1);
-    } else if (lastRecord.result === '二塁打') {
-      player.stats.h = Math.max(0, (player.stats.h || 1) - 1);
-      player.stats.double = Math.max(0, (player.stats.double || 1) - 1);
-    } else if (lastRecord.result === '三塁打') {
-      player.stats.h = Math.max(0, (player.stats.h || 1) - 1);
-      player.stats.triple = Math.max(0, (player.stats.triple || 1) - 1);
-    } else if (lastRecord.result === '本塁打') {
-      player.stats.h = Math.max(0, (player.stats.h || 1) - 1);
-      player.stats.hr = Math.max(0, (player.stats.hr || 1) - 1);
-    } else if (lastRecord.result === '四球') {
-      player.stats.pa = Math.max(0, (player.stats.pa || 1) - 1);
-      player.stats.bb = Math.max(0, (player.stats.bb || 1) - 1);
-    } else if (lastRecord.result === '死球') {
-      player.stats.pa = Math.max(0, (player.stats.pa || 1) - 1);
-      player.stats.hbp = Math.max(0, (player.stats.hbp || 1) - 1);
-    } else if (lastRecord.result === '三振') {
-      player.stats.so = Math.max(0, (player.stats.so || 1) - 1);
-    } else if (lastRecord.result === '犠打') {
-      player.stats.pa = Math.max(0, (player.stats.pa || 1) - 1);
-      player.stats.sh = Math.max(0, (player.stats.sh || 1) - 1);
-    } else if (lastRecord.result === '犠飛') {
-      player.stats.pa = Math.max(0, (player.stats.pa || 1) - 1);
-      player.stats.sf = Math.max(0, (player.stats.sf || 1) - 1);
-    } else if (lastRecord.result === '盗塁') {
-      player.stats.sb = Math.max(0, (player.stats.sb || 1) - 1);
-    } else if (lastRecord.result === '打点') {
-      player.stats.rbi = Math.max(0, (player.stats.rbi || 1) - 1);
-    } else if (lastRecord.result === '得点') {
-      player.stats.r = Math.max(0, (player.stats.r || 1) - 1);
-    } else if (lastRecord.result === '守備機会') {
-      player.stats.tc = Math.max(0, (player.stats.tc || 1) - 1);
-    } else if (lastRecord.result === '失策') {
-      player.stats.e = Math.max(0, (player.stats.e || 1) - 1);
-      player.stats.tc = Math.max(0, (player.stats.tc || 1) - 1);
-    }
+// 🆕 「↩️ 直近の入力を1件取消」ボタン：登録前の最後のタップを取り消す
+function undoLastAtBat() {
+  if (pendingBatterQueue.length === 0) {
+    showNotification("取り消せる未登録の入力がありません", false);
+    return;
+  }
+  const removed = pendingBatterQueue.pop();
+  renderPendingBatterQueue();
+  showNotification(`「${removed.result}」(${removed.playerName}) の入力を取り消しました`);
+}
 
-    if (player.stats.ab > 0) {
-      player.bat = player.stats.h / player.stats.ab;
-      const obpDenominator = player.stats.ab + (player.stats.bb || 0) + (player.stats.hbp || 0) + (player.stats.sf || 0);
-      const obp = obpDenominator > 0 ? (player.stats.h + (player.stats.bb || 0) + (player.stats.hbp || 0)) / obpDenominator : 0;
-      const tb = player.stats.h + (player.stats.double || 0) + ((player.stats.triple || 0) * 2) + ((player.stats.hr || 0) * 3);
-      const slg = tb / player.stats.ab;
-      player.ops = obp + slg;
-    } else {
-      player.bat = 0;
-      player.ops = 0;
-    }
+// 🆕 入力内容欄の全クリア
+function clearPendingBatterQueue() {
+  if (pendingBatterQueue.length === 0) return;
+  pendingBatterQueue = [];
+  renderPendingBatterQueue();
+  showNotification("入力内容をすべてクリアしました", false);
+}
+
+// 🆕 登録ボタン：入力内容欄に蓄積された全件を選手成績へ反映し、スプレッドシートへ一括送信
+function registerBatterQueue() {
+  if (pendingBatterQueue.length === 0) {
+    showNotification("登録する入力がありません", false);
+    return;
   }
 
-  const undoLogItem = `[${new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}] ↩️ 取消: ${player ? player.name : ''} の「${lastRecord.result}」を削除`;
-  matchLogs.unshift(undoLogItem);
+  const matchSelect = document.getElementById("matchSelect");
+  const matchId = matchSelect ? matchSelect.value : "20260810_三重";
+
+  const payloadRecords = [];
+
+  pendingBatterQueue.forEach(item => {
+    const player = players.find(p => p.id === item.playerId);
+    if (player) {
+      if (!player.stats) {
+        player.stats = { pa:0, ab:0, h:0, double:0, triple:0, hr:0, r:0, rbi:0, so:0, bb:0, hbp:0, sh:0, sf:0, sb:0, e:0, tc:0 };
+      }
+      Object.keys(item.delta).forEach(k => {
+        player.stats[k] = (player.stats[k] || 0) + item.delta[k];
+      });
+
+      if (player.stats.ab > 0) {
+        player.bat = player.stats.h / player.stats.ab;
+        const obpDenominator = player.stats.ab + (player.stats.bb || 0) + (player.stats.hbp || 0) + (player.stats.sf || 0);
+        const obp = obpDenominator > 0 ? (player.stats.h + (player.stats.bb || 0) + (player.stats.hbp || 0)) / obpDenominator : 0;
+        const tb = player.stats.h + (player.stats.double || 0) + ((player.stats.triple || 0) * 2) + ((player.stats.hr || 0) * 3);
+        const slg = tb / player.stats.ab;
+        player.ops = obp + slg;
+      }
+
+      recentBattingHistory.unshift({
+        playerId: player.id,
+        result: item.result,
+        ...item.delta
+      });
+    }
+
+    payloadRecords.push({
+      gameId: matchId,
+      playerId: item.playerId,
+      rispFlag: item.rispFlag,
+      result: item.result,
+      runs: item.delta.r,
+      rbi: item.delta.rbi,
+      so: item.delta.so,
+      bb: item.delta.bb,
+      hbp: item.delta.hbp,
+      sh: item.delta.sh,
+      sf: item.delta.sf,
+      stolenBases: item.delta.sb,
+      errors: item.delta.e,
+      chances: item.delta.tc
+    });
+  });
+
+  const registeredCount = pendingBatterQueue.length;
+  const syncStatus = gasUrl ? "🌐 クラウド一括保存" : "💾 ローカル一括保存";
+  const logItem = `[${new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}] 📦 打席・守備記録 ${registeredCount}件を一括登録 (${syncStatus})`;
+  matchLogs.unshift(logItem);
 
   const logContainer = document.getElementById("matchLogList");
   if (logContainer) {
@@ -3406,15 +3437,21 @@ function undoLastAtBat() {
       method: "POST",
       mode: "no-cors",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "undoLastAtBat" })
+      body: JSON.stringify({
+        action: "recordAtBatBulk",
+        records: payloadRecords
+      })
     }).then(() => {
-      showNotification(`直近の「${lastRecord.result}」を削除し、スプレッドシートを更新しました！`);
+      showNotification(`${registeredCount}件の打席・守備記録をスプレッドシートに一括保存しました！`);
     }).catch(err => {
-      showNotification("スプレッドシートへの削除通信に失敗しました", false);
+      showNotification("スプレッドシートへの一括保存通信に失敗しました", false);
     });
   } else {
-    showNotification(`直近の「${lastRecord.result}」をアプリ内から削除しました`);
+    showNotification(`${registeredCount}件の打席・守備記録をアプリ内に一括登録しました (GAS未連携)`);
   }
+
+  pendingBatterQueue = [];
+  renderPendingBatterQueue();
 }
 
 function recordPitching() {
@@ -3891,6 +3928,7 @@ window.onload = function() {
   populateDropdowns();
   renderOrderView();
   renderAllPlayersTable();
+  renderPendingBatterQueue();
 
   if (gasUrl) {
     fetchGasData();
