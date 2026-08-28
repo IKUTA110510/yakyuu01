@@ -1309,13 +1309,36 @@ function registerBatterQueue() {
   const matchSelect = document.getElementById("matchSelect");
   const matchId = matchSelect ? matchSelect.value : "";
   if (!matchId) { showNotification("対象試合を選択または作成してください", false); return; }
-  const payloadRecords = [];
 
+  // 🌟 選手ごとにキューの内容を1行に集約・合算
+  const playerGroupMap = {};
   pendingBatterQueue.forEach(item => {
-    const p = players.find(player => player.id === item.playerId);
+    if (!playerGroupMap[item.playerId]) {
+      playerGroupMap[item.playerId] = {
+        playerId: item.playerId,
+        playerName: item.playerName,
+        results: [],
+        rispCount: 0,
+        delta: { pa:0, ab:0, h:0, double:0, triple:0, hr:0, r:0, rbi:0, so:0, bb:0, hbp:0, sh:0, sf:0, sb:0, e:0, tc:0 }
+      };
+    }
+    const grp = playerGroupMap[item.playerId];
+    grp.results.push(item.result);
+    if (item.rispFlag) grp.rispCount++;
+    Object.keys(item.delta).forEach(k => {
+      grp.delta[k] += item.delta[k];
+    });
+  });
+
+  const payloadRecords = [];
+  const playerIds = Object.keys(playerGroupMap);
+
+  playerIds.forEach(pid => {
+    const grp = playerGroupMap[pid];
+    const p = players.find(player => player.id === grp.playerId);
     if (p) {
       p.stats = p.stats || { pa:0, ab:0, h:0, double:0, triple:0, hr:0, r:0, rbi:0, so:0, bb:0, hbp:0, sh:0, sf:0, sb:0, e:0, tc:0 };
-      Object.keys(item.delta).forEach(k => { p.stats[k] = (p.stats[k] || 0) + item.delta[k]; });
+      Object.keys(grp.delta).forEach(k => { p.stats[k] = (p.stats[k] || 0) + grp.delta[k]; });
       if (p.stats.ab > 0) {
         p.bat = p.stats.h / p.stats.ab;
         const obpD = p.stats.ab + (p.stats.bb || 0) + (p.stats.hbp || 0) + (p.stats.sf || 0);
@@ -1323,13 +1346,46 @@ function registerBatterQueue() {
         const slg = (p.stats.h + (p.stats.double || 0) + (p.stats.triple || 0) * 2 + (p.stats.hr || 0) * 3) / p.stats.ab;
         p.ops = obp + slg;
       }
-      recentBattingHistory.unshift({ playerId: p.id, result: item.result, ...item.delta });
+      recentBattingHistory.unshift({ playerId: p.id, result: grp.results.join(", "), ...grp.delta });
     }
-    payloadRecords.push({ gameId: matchId, playerId: item.playerId, rispFlag: item.rispFlag, result: item.result, runs: item.delta.r, rbi: item.delta.rbi, so: item.delta.so, bb: item.delta.bb, hbp: item.delta.hbp, sh: item.delta.sh, sf: item.delta.sf, stolenBases: item.delta.sb, errors: item.delta.e, chances: item.delta.tc });
+
+    // 1行にまとめたサマリー文字列を作成（例: 2打数2安打 (単打, 本塁打) 打点1 盗塁1）
+    const hitsDetail = [];
+    if (grp.delta.h - grp.delta.double - grp.delta.triple - grp.delta.hr > 0) hitsDetail.push(`単打${grp.delta.h - grp.delta.double - grp.delta.triple - grp.delta.hr}`);
+    if (grp.delta.double > 0) hitsDetail.push(`二塁打${grp.delta.double}`);
+    if (grp.delta.triple > 0) hitsDetail.push(`三塁打${grp.delta.triple}`);
+    if (grp.delta.hr > 0) hitsDetail.push(`本塁打${grp.delta.hr}`);
+
+    const summaryDetail = `${grp.delta.ab > 0 ? `${grp.delta.ab}打数${grp.delta.h}安打` : '打数0'}${hitsDetail.length ? ` (${hitsDetail.join('/')})` : ''}`;
+
+    payloadRecords.push({
+      gameId: matchId,
+      playerId: grp.playerId,
+      rispFlag: grp.rispCount > 0 ? 1 : 0,
+      result: grp.results.join(", "),
+      summaryDetail: summaryDetail,
+      pa: grp.delta.pa,
+      ab: grp.delta.ab,
+      h: grp.delta.h,
+      double: grp.delta.double,
+      triple: grp.delta.triple,
+      hr: grp.delta.hr,
+      runs: grp.delta.r,
+      rbi: grp.delta.rbi,
+      so: grp.delta.so,
+      bb: grp.delta.bb,
+      hbp: grp.delta.hbp,
+      sh: grp.delta.sh,
+      sf: grp.delta.sf,
+      stolenBases: grp.delta.sb,
+      errors: grp.delta.e,
+      chances: grp.delta.tc
+    });
   });
 
-  const count = pendingBatterQueue.length;
-  matchLogs.unshift(`[${new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}] 📦 打席・守備記録 ${count}件を一括登録 (${gasUrl ? '🌐 クラウド保存' : '💾 ローカル保存'})`);
+  const totalInputCount = pendingBatterQueue.length;
+  const rowCount = payloadRecords.length;
+  matchLogs.unshift(`[${new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}] 📦 ${totalInputCount}項目を【${rowCount}行にまとめて一括登録】 (${gasUrl ? '🌐 クラウド保存' : '💾 ローカル保存'})`);
   document.getElementById("matchLogList").innerHTML = matchLogs.map(l => `<div class="p-1.5 bg-slate-800 rounded border border-slate-700 font-mono">${l}</div>`).join("");
   renderOrderView();
   renderAllPlayersTable();
@@ -1341,10 +1397,10 @@ function registerBatterQueue() {
       headers: { "Content-Type": "text/plain" },
       body: JSON.stringify({ action: "recordAtBatBulk", records: payloadRecords })
     })
-      .then(() => showNotification(`${count}件の記録をスプレッドシートに一括保存しました！`))
+      .then(() => showNotification(`${totalInputCount}項目の入力を1行にまとめてスプレッドシートに保存しました！`))
       .catch(() => showNotification("スプレッドシートへの通信に失敗しました", false));
   } else {
-    showNotification(`${count}件の記録をアプリ内に一括登録しました (GAS未連携)`);
+    showNotification(`${totalInputCount}項目の入力を1行にまとめて登録しました (GAS未連携)`);
   }
   pendingBatterQueue = [];
   renderPendingBatterQueue();
@@ -1651,7 +1707,7 @@ function initDatabase() {
   }
   const createSheet = (name, headers) => { if (!ss.getSheetByName(name)) { const s = ss.insertSheet(name); s.appendRow(headers); } };
   createSheet(SHEETS.GAMES, ["試合ID", "日付", "対戦相手", "試合区分", "自チーム得点", "相手チーム得点", "勝敗", "備考"]);
-  createSheet(SHEETS.BATTING, ["記録ID", "日時", "試合ID", "選手ID", "イニング", "得点圏フラグ", "結果種別", "詳細", "得点", "打点", "三振", "四球", "死球", "犠打", "犠飛", "盗塁", "失策", "守備機会", "備考"]);
+  createSheet(SHEETS.BATTING, ["記録ID", "日時", "試合ID", "選手ID", "打席数", "打数", "安打", "二塁打", "三塁打", "本塁打", "得点", "打点", "三振", "四球", "死球", "犠打", "犠飛", "盗塁", "失策", "守備機会", "結果内訳", "備考"]);
   createSheet(SHEETS.PHYSICAL, ["測定ID", "日時", "選手ID", "スイング速度", "1塁走タイム", "遠投", "最高球速", "立ち幅跳び", "ボックスジャンプ", "開脚前屈", "ブリッジ", "しゃがみ込み", "メディシンボール（前）", "メディシンボール（後）", "備考"]);
   createSheet(SHEETS.PITCHING, ["記録ID", "日時", "試合ID", "選手ID", "登板数", "勝利", "敗戦", "投球回数", "打者数", "被安打", "奪三振", "与四球", "与死球", "失点", "自責点", "球数", "被塁打", "備考"]);
   createSheet(SHEETS.BATTER_SUMMARY, ["選手ID", "氏名", "学年", "打席数", "打数", "安打", "二塁打", "三塁打", "本塁打", "打率", "出塁率", "長打率", "OPS", "打点", "得点", "四球", "死球", "三振", "犠打", "犠飛", "盗塁", "失策", "守備機会", "守備率"]);
@@ -1675,10 +1731,30 @@ function recalculateSummaries() {
       let pa = 0, ab = 0, h = 0, d = 0, t = 0, hr = 0, rbi = 0, r = 0, bb = 0, hbp = 0, so = 0, sh = 0, sf = 0, sbCount = 0, e = 0, tc = 0;
       for (let j = 1; j < bData.length; j++) {
         if (bData[j][3] == pid) {
-          let res = bData[j][6]; pa++;
-          if (res === "単打") { h++; ab++; } else if (res === "二塁打") { h++; d++; ab++; } else if (res === "三塁打") { h++; t++; ab++; } else if (res === "本塁打") { h++; hr++; ab++; }
-          else if (res === "凡打" || res === "三振") { ab++; if (res === "三振") so++; } else if (res === "四球") bb++; else if (res === "死球") hbp++; else if (res === "犠打") sh++; else if (res === "犠飛") sf++;
-          r += Number(bData[j][8] || 0); rbi += Number(bData[j][9] || 0); sbCount += Number(bData[j][15] || 0); e += Number(bData[j][16] || 0); tc += Number(bData[j][17] || 0);
+          // 🌟 1行集約フォーマット（列4〜19）または旧1行1打席フォーマットの双方に対応
+          if (bData[j].length >= 20 && !isNaN(bData[j][4]) && !isNaN(bData[j][5])) {
+            pa += Number(bData[j][4] || 0);
+            ab += Number(bData[j][5] || 0);
+            h += Number(bData[j][6] || 0);
+            d += Number(bData[j][7] || 0);
+            t += Number(bData[j][8] || 0);
+            hr += Number(bData[j][9] || 0);
+            r += Number(bData[j][10] || 0);
+            rbi += Number(bData[j][11] || 0);
+            so += Number(bData[j][12] || 0);
+            bb += Number(bData[j][13] || 0);
+            hbp += Number(bData[j][14] || 0);
+            sh += Number(bData[j][15] || 0);
+            sf += Number(bData[j][16] || 0);
+            sbCount += Number(bData[j][17] || 0);
+            e += Number(bData[j][18] || 0);
+            tc += Number(bData[j][19] || 0);
+          } else {
+            let res = String(bData[j][6] || ""); pa++;
+            if (res.includes("単打")) { h++; ab++; } else if (res.includes("二塁打")) { h++; d++; ab++; } else if (res.includes("三塁打")) { h++; t++; ab++; } else if (res.includes("本塁打")) { h++; hr++; ab++; }
+            else if (res.includes("凡打") || res.includes("三振")) { ab++; if (res.includes("三振")) so++; } else if (res.includes("四球")) bb++; else if (res.includes("死球")) hbp++; else if (res.includes("犠打")) sh++; else if (res.includes("犠飛")) sf++;
+            r += Number(bData[j][8] || 0); rbi += Number(bData[j][9] || 0); sbCount += Number(bData[j][15] || 0); e += Number(bData[j][16] || 0); tc += Number(bData[j][17] || 0);
+          }
         }
       }
       let avg = ab > 0 ? (h / ab) : 0, obpD = ab + bb + hbp + sf, obp = obpD > 0 ? ((h + bb + hbp) / obpD) : 0;
@@ -1744,23 +1820,42 @@ function doGet(e) {
         bStatsMap[pid] = { pa:0, ab:0, h:0, double:0, triple:0, hr:0, r:0, rbi:0, so:0, bb:0, hbp:0, sh:0, sf:0, sb:0, e:0, tc:0 };
       }
       const s = bStatsMap[pid];
-      const res = bRows[j][6];
-      s.pa++;
-      if (res === "単打") { s.h++; s.ab++; }
-      else if (res === "二塁打") { s.h++; s.double++; s.ab++; }
-      else if (res === "三塁打") { s.h++; s.triple++; s.ab++; }
-      else if (res === "本塁打") { s.h++; s.hr++; s.ab++; }
-      else if (res === "凡打") { s.ab++; }
-      else if (res === "三振") { s.so++; s.ab++; }
-      else if (res === "四球") { s.bb++; }
-      else if (res === "死球") { s.hbp++; }
-      else if (res === "犠打") { s.sh++; }
-      else if (res === "犠飛") { s.sf++; }
-      s.r += Number(bRows[j][8] || 0);
-      s.rbi += Number(bRows[j][9] || 0);
-      s.sb += Number(bRows[j][15] || 0);
-      s.e += Number(bRows[j][16] || 0);
-      s.tc += Number(bRows[j][17] || 0);
+      if (bRows[j].length >= 20 && !isNaN(bRows[j][4]) && !isNaN(bRows[j][5])) {
+        s.pa += Number(bRows[j][4] || 0);
+        s.ab += Number(bRows[j][5] || 0);
+        s.h += Number(bRows[j][6] || 0);
+        s.double += Number(bRows[j][7] || 0);
+        s.triple += Number(bRows[j][8] || 0);
+        s.hr += Number(bRows[j][9] || 0);
+        s.r += Number(bRows[j][10] || 0);
+        s.rbi += Number(bRows[j][11] || 0);
+        s.so += Number(bRows[j][12] || 0);
+        s.bb += Number(bRows[j][13] || 0);
+        s.hbp += Number(bRows[j][14] || 0);
+        s.sh += Number(bRows[j][15] || 0);
+        s.sf += Number(bRows[j][16] || 0);
+        s.sb += Number(bRows[j][17] || 0);
+        s.e += Number(bRows[j][18] || 0);
+        s.tc += Number(bRows[j][19] || 0);
+      } else {
+        const res = String(bRows[j][6] || "");
+        s.pa++;
+        if (res.includes("単打")) { s.h++; s.ab++; }
+        else if (res.includes("二塁打")) { s.h++; s.double++; s.ab++; }
+        else if (res.includes("三塁打")) { s.h++; s.triple++; s.ab++; }
+        else if (res.includes("本塁打")) { s.h++; s.hr++; s.ab++; }
+        else if (res.includes("凡打")) { s.ab++; }
+        else if (res.includes("三振")) { s.so++; s.ab++; }
+        else if (res.includes("四球")) { s.bb++; }
+        else if (res.includes("死球")) { s.hbp++; }
+        else if (res.includes("犠打")) { s.sh++; }
+        else if (res.includes("犠飛")) { s.sf++; }
+        s.r += Number(bRows[j][8] || 0);
+        s.rbi += Number(bRows[j][9] || 0);
+        s.sb += Number(bRows[j][15] || 0);
+        s.e += Number(bRows[j][16] || 0);
+        s.tc += Number(bRows[j][17] || 0);
+      }
     }
 
     const pStatsMap = {};
@@ -1845,7 +1940,7 @@ function doPost(e) {
       let sheet = ss.getSheetByName(SHEETS.BATTING);
       if (!sheet) {
         sheet = ss.insertSheet(SHEETS.BATTING);
-        sheet.appendRow(["記録ID", "日時", "試合ID", "選手ID", "イニング", "得点圏フラグ", "結果種別", "詳細", "得点", "打点", "三振", "四球", "死球", "犠打", "犠飛", "盗塁", "失策", "守備機会", "備考"]);
+        sheet.appendRow(["記録ID", "日時", "試合ID", "選手ID", "打席数", "打数", "安打", "二塁打", "三塁打", "本塁打", "得点", "打点", "三振", "四球", "死球", "犠打", "犠飛", "盗塁", "失策", "守備機会", "結果内訳", "備考"]);
       }
       const records = postData.records || [];
       const timeStr = Utilities.formatDate(new Date(), "JST", "yyyyMMdd_HHmmss");
@@ -1854,10 +1949,12 @@ function doPost(e) {
         new Date(),
         r.gameId || "直接入力",
         Number(r.playerId) || r.playerId,
-        r.inning || "-",
-        Number(r.rispFlag) || 0,
-        r.result,
-        r.hitType || "-",
+        Number(r.pa) || 0,
+        Number(r.ab) || 0,
+        Number(r.h) || 0,
+        Number(r.double) || 0,
+        Number(r.triple) || 0,
+        Number(r.hr) || 0,
         Number(r.runs) || 0,
         Number(r.rbi) || 0,
         Number(r.so) || 0,
@@ -1868,7 +1965,8 @@ function doPost(e) {
         Number(r.stolenBases) || 0,
         Number(r.errors) || 0,
         Number(r.chances) || 0,
-        r.notes || "一括登録"
+        r.result || "",
+        r.summaryDetail || "一括集約登録"
       ]);
       if (rows.length) {
         sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
@@ -1943,5 +2041,3 @@ window.onload = function() {
   }
 };
 </script>
-</body>
-</html>
