@@ -1509,28 +1509,41 @@ function savePhysicalTest() {
   const playerId = parseInt(document.getElementById("testPlayerSelect")?.value);
   const player = players.find(p => p.id === playerId);
   if (!player) { showNotification("選手を選択してください", false); return; }
-  const getVal = (id) => { const el = document.getElementById(id); return el && el.value ? parseFloat(el.value) : null; };
+  const getVal = (id) => { const el = document.getElementById(id); return el && el.value !== "" && !isNaN(el.value) ? parseFloat(el.value) : null; };
   const getStr = (id) => document.getElementById(id)?.value || "";
+
+  const batSpeed = getVal("testBatSpeed");
+  const runTime = getVal("testRunTime");
+  const longToss = getVal("testLongToss");
+  const maxSpeed = getVal("testMaxSpeed");
+  const broadJump = getVal("testBroadJump");
+  const boxJump = getVal("testBoxJump");
+  const medballFront = getVal("testMedballFront");
+  const medballBack = getVal("testMedballBack");
+  const split = getStr("testSplit");
+  const bridge = getStr("testBridge");
+  const squat = getStr("testSquat");
+
+  // 入力された項目のみを更新（未入力の項目は以前の最新値をそのまま維持）
+  if (batSpeed !== null) player.batSpeed = batSpeed;
+  if (runTime !== null) player.runTime = runTime;
+  if (longToss !== null) player.longToss = longToss;
+  if (maxSpeed !== null) player.maxSpeed = maxSpeed;
+  if (broadJump !== null) player.broadJump = broadJump;
+  if (boxJump !== null) player.boxJump = boxJump;
+  if (medballFront !== null) player.medballFront = medballFront;
+  if (medballBack !== null) player.medballBack = medballBack;
+  if (split) player.split = split;
+  if (bridge) player.bridge = bridge;
+  if (squat) player.squat = squat;
 
   const payload = {
     action: "savePhysicalTest",
     playerId,
-    batSpeed: getVal("testBatSpeed"), runTime: getVal("testRunTime"), longToss: getVal("testLongToss"), maxSpeed: getVal("testMaxSpeed"),
-    broadJump: getVal("testBroadJump"), boxJump: getVal("testBoxJump"), medballFront: getVal("testMedballFront"), medballBack: getVal("testMedballBack"),
-    splitForward: getStr("testSplit"), bridge: getStr("testBridge"), squat: getStr("testSquat")
+    batSpeed, runTime, longToss, maxSpeed,
+    broadJump, boxJump, medballFront, medballBack,
+    splitForward: split, bridge, squat
   };
-
-  if (payload.batSpeed !== null) player.batSpeed = payload.batSpeed;
-  if (payload.runTime !== null) player.runTime = payload.runTime;
-  if (payload.longToss !== null) player.longToss = payload.longToss;
-  if (payload.maxSpeed !== null) player.maxSpeed = payload.maxSpeed;
-  if (payload.broadJump !== null) player.broadJump = payload.broadJump;
-  if (payload.boxJump !== null) player.boxJump = payload.boxJump;
-  if (payload.medballFront !== null) player.medballFront = payload.medballFront;
-  if (payload.medballBack !== null) player.medballBack = payload.medballBack;
-  if (payload.splitForward) player.split = payload.splitForward;
-  if (payload.bridge) player.bridge = payload.bridge;
-  if (payload.squat) player.squat = payload.squat;
 
   ['testBatSpeed','testRunTime','testLongToss','testMaxSpeed','testBroadJump','testBoxJump','testMedballFront','testMedballBack','testSplit','testBridge','testSquat'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
   renderOrderView();
@@ -1543,10 +1556,10 @@ function savePhysicalTest() {
       headers: { "Content-Type": "text/plain" },
       body: JSON.stringify(payload)
     })
-      .then(() => showNotification(`${player.name} の体力測定結果を保存しました！`))
+      .then(() => showNotification(`${player.name} の計測結果を保存しました！（既存データは維持）`))
       .catch(() => showNotification("スプレッドシートへの通信に失敗しました", false));
   } else {
-    showNotification(`${player.name} の体力測定結果を保存しました (GAS未連携)`);
+    showNotification(`${player.name} の計測結果を保存しました (GAS未連携)`);
   }
 }
 
@@ -1805,12 +1818,32 @@ function doGet(e) {
     const piRows = pit ? pit.getDataRange().getValues() : [];
     const gRows = sg ? sg.getDataRange().getValues() : [];
 
+    // 🌟 フィジカル測定履歴から「各項目ごと」に最新の入力値を集約
     const phMap = {};
+    const phFields = [
+      { key: "bat_speed", idx: 3 },
+      { key: "run_time", idx: 4 },
+      { key: "long_toss", idx: 5 },
+      { key: "max_speed", idx: 6 },
+      { key: "broad_jump", idx: 7 },
+      { key: "box_jump", idx: 8 },
+      { key: "split_forward", idx: 9 },
+      { key: "bridge", idx: 10 },
+      { key: "squat", idx: 11 },
+      { key: "medball_front", idx: 12 },
+      { key: "medball_back", idx: 13 }
+    ];
+
     for (let p = 1; p < phRows.length; p++) {
       const pid = phRows[p][2];
-      if (pid) {
-        phMap[pid] = { bat_speed: phRows[p][3], run_time: phRows[p][4], long_toss: phRows[p][5], max_speed: phRows[p][6], broad_jump: phRows[p][7], box_jump: phRows[p][8], split_forward: phRows[p][9], bridge: phRows[p][10], squat: phRows[p][11], medball_front: phRows[p][12], medball_back: phRows[p][13] };
-      }
+      if (!pid) continue;
+      if (!phMap[pid]) phMap[pid] = {};
+      phFields.forEach(f => {
+        const val = phRows[p][f.idx];
+        if (val !== "" && val !== null && val !== undefined) {
+          phMap[pid][f.key] = val;
+        }
+      });
     }
 
     const bStatsMap = {};
@@ -2004,9 +2037,16 @@ function doPost(e) {
       }
       sheet.appendRow([
         "PHY_" + Utilities.formatDate(new Date(), "JST", "yyyyMMdd_HHmmss"), new Date(), postData.playerId,
-        postData.batSpeed || "", postData.runTime || "", postData.longToss || "", postData.maxSpeed || "",
-        postData.broadJump || "", postData.boxJump || "", postData.splitForward || "", postData.bridge || "",
-        postData.squat || "", postData.medballFront || "", postData.medballBack || "", postData.notes || "Webアプリ入力"
+        postData.batSpeed !== null && postData.batSpeed !== undefined ? postData.batSpeed : "",
+        postData.runTime !== null && postData.runTime !== undefined ? postData.runTime : "",
+        postData.longToss !== null && postData.longToss !== undefined ? postData.longToss : "",
+        postData.maxSpeed !== null && postData.maxSpeed !== undefined ? postData.maxSpeed : "",
+        postData.broadJump !== null && postData.broadJump !== undefined ? postData.broadJump : "",
+        postData.boxJump !== null && postData.boxJump !== undefined ? postData.boxJump : "",
+        postData.splitForward || "", postData.bridge || "", postData.squat || "",
+        postData.medballFront !== null && postData.medballFront !== undefined ? postData.medballFront : "",
+        postData.medballBack !== null && postData.medballBack !== undefined ? postData.medballBack : "",
+        postData.notes || "Webアプリ入力"
       ]);
       return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
     }
