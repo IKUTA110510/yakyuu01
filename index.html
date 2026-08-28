@@ -1018,7 +1018,7 @@ function buildSingleCardHTML(player, labelPrefix = "") {
             <div class="stat-row py-2 px-3"><span class="font-black text-slate-800 text-sm sm:text-base">球速</span><span class="font-black text-sky-900 text-base sm:text-lg font-mono">${player.maxSpeed || 110} km/h</span></div>
             <div class="stat-row flex-col items-stretch py-2 px-3 gap-0.5">
               <div class="flex items-center justify-between w-full"><span class="font-black text-slate-800 text-sm sm:text-base">コントロール</span><span class="rank-badge rank-${controlRank}">${controlRank}</span></div>
-              <div class="flex justify-between items-center w-full"><span class="text-[11px] font-bold text-slate-500">与四死球/回</span><span class="text-xs text-sky-900 font-mono font-black">与四死球率: ${ps.ip > 0 ? walksPerInning.toFixed(2) : '0.00'}</span></div>
+              <div class="flex justify-between items-center w-full"><span class="text-[11px] font-bold text-slate-500">与四死球/試合 (${regulationInnings}回)</span><span class="text-xs text-sky-900 font-mono font-black">与四死球率: ${ps.ip > 0 ? (((ps.bb + ps.hbp) * regulationInnings) / ps.ip).toFixed(2) : '0.00'}</span></div>
             </div>
             <div class="stat-row flex-col items-stretch py-2 px-3 gap-0.5">
               <div class="flex items-center justify-between w-full"><span class="font-black text-slate-800 text-sm sm:text-base">スタミナ</span><span class="rank-badge rank-${staminaRank}">${staminaRank}</span></div>
@@ -1026,7 +1026,7 @@ function buildSingleCardHTML(player, labelPrefix = "") {
             </div>
             <div class="bg-white/90 p-2 rounded-lg border border-sky-300 space-y-1 text-xs">
               <div class="flex justify-between text-slate-800 font-bold"><span>登板成績:</span><span class="font-black text-sky-900">${ps.games}登板 ${ps.wins}勝 ${ps.losses}敗</span></div>
-              <div class="flex justify-between text-slate-800 font-bold"><span>与四死球 / 奪三振:</span><span class="font-black text-rose-700">${ps.bb + ps.hbp}個 (${ps.ip > 0 ? walksPerInning.toFixed(2) : '0.00'}) / ${ps.so}個</span></div>
+              <div class="flex justify-between text-slate-800 font-bold"><span>与四死球 / 奪三振:</span><span class="font-black text-rose-700">${ps.bb + ps.hbp}個 (${ps.ip > 0 ? (((ps.bb + ps.hbp) * regulationInnings) / ps.ip).toFixed(2) : '0.00'}) / ${ps.so}個</span></div>
             </div>
           </div>
         ` : `
@@ -1141,7 +1141,7 @@ function renderAllPlayersTable() {
         ${players.filter(hasPitcherData).map(p => {
           const ps = p.pitchStats || { games:0, wins:0, losses:0, ip:0, bf:0, h:0, so:0, bb:0, hbp:0, r:0, er:0, pitches:0, tb:0, strikes:0 };
           const exactIp = getExactInnings(ps.ip);
-          const wPerIp = exactIp > 0 ? ((ps.bb + ps.hbp) / exactIp) : 1.0;
+          const wPerIp = exactIp > 0 ? (((ps.bb + ps.hbp) * regulationInnings) / exactIp) : 0;
           const avgIp = ps.games > 0 ? (exactIp / ps.games) : 0;
           const ctrlR = getPowerProRankByTable('control', wPerIp);
           const stamR = getPowerProRankByTable('stamina', avgIp);
@@ -1151,12 +1151,12 @@ function renderAllPlayersTable() {
     `;
   } else if (currentListMode === 'pitcher_stats') {
     table.innerHTML = `
-      <thead><tr class="bg-indigo-300 text-indigo-950 border-b border-indigo-400 text-xs font-black whitespace-nowrap"><th class="p-2 text-left">投手名</th><th class="p-2">学年</th><th class="p-2">登板数</th><th class="p-2">勝</th><th class="p-2">敗</th><th class="p-2 bg-emerald-200 text-emerald-950 font-black">防御率<br><span class="text-[9px] font-normal">(${regulationInnings}回換算)</span></th><th class="p-2">投球回</th><th class="p-2">打者数</th><th class="p-2">被安打</th><th class="p-2">奪三振</th><th class="p-2">与四球</th><th class="p-2">与死球</th><th class="p-2 bg-amber-200 text-amber-950 font-black">与四死球率</th><th class="p-2">失点</th><th class="p-2">自責点</th><th class="p-2">球数</th><th class="p-2">被塁打</th></tr></thead>
+      <thead><tr class="bg-indigo-300 text-indigo-950 border-b border-indigo-400 text-xs font-black whitespace-nowrap"><th class="p-2 text-left">投手名</th><th class="p-2">学年</th><th class="p-2">登板数</th><th class="p-2">勝</th><th class="p-2">敗</th><th class="p-2 bg-emerald-200 text-emerald-950 font-black">防御率<br><span class="text-[9px] font-normal">(${regulationInnings}回換算)</span></th><th class="p-2">投球回</th><th class="p-2">打者数</th><th class="p-2">被安打</th><th class="p-2">奪三振</th><th class="p-2">与四球</th><th class="p-2">与死球</th><th class="p-2 bg-amber-200 text-amber-950 font-black">与四死球率<br><span class="text-[9px] font-normal">(${regulationInnings}回換算)</span></th><th class="p-2">失点</th><th class="p-2">自責点</th><th class="p-2">球数</th><th class="p-2">被塁打</th></tr></thead>
       <tbody class="divide-y divide-indigo-100">
         ${players.filter(hasPitcherData).map(p => {
           const ps = p.pitchStats || { games:0, wins:0, losses:0, ip:0, bf:0, h:0, so:0, bb:0, hbp:0, r:0, er:0, pitches:0, tb:0, strikes:0 };
           const exactIp = getExactInnings(ps.ip);
-          const wPerIp = exactIp > 0 ? ((ps.bb + ps.hbp) / exactIp) : 0;
+          const wPerIp = exactIp > 0 ? (((ps.bb + ps.hbp) * regulationInnings) / exactIp) : 0;
           return `<tr class="hover:bg-indigo-50 text-xs transition-colors whitespace-nowrap"><td class="p-2 text-left font-black text-slate-900">${p.name}</td><td class="p-2 font-bold text-slate-600">${p.grade}年</td><td class="p-2 font-mono font-bold text-slate-800">${ps.games}</td><td class="p-2 font-mono text-emerald-700 font-black">${ps.wins}</td><td class="p-2 font-mono text-rose-600 font-bold">${ps.losses}</td><td class="p-2 font-mono font-black text-emerald-800 bg-emerald-100/50 text-sm">${exactIp > 0 ? ((ps.er * regulationInnings) / exactIp).toFixed(2) : "0.00"}</td><td class="p-2 font-mono font-bold text-slate-900">${formatInnings(ps.ip)}</td><td class="p-2 font-mono text-slate-700">${ps.bf}</td><td class="p-2 font-mono text-rose-600 font-bold">${ps.h}</td><td class="p-2 font-mono text-amber-700 font-black">${ps.so}</td><td class="p-2 font-mono text-sky-800">${ps.bb}</td><td class="p-2 font-mono text-sky-800">${ps.hbp}</td><td class="p-2 font-mono font-black text-amber-900 bg-amber-100/60">${wPerIp.toFixed(2)}</td><td class="p-2 font-mono text-rose-700 font-bold">${ps.r}</td><td class="p-2 font-mono text-rose-800 font-black">${ps.er}</td><td class="p-2 font-mono text-slate-700">${ps.pitches}</td><td class="p-2 font-mono text-slate-600">${ps.tb}</td></tr>`;
         }).join("")}
       </tbody>
@@ -1587,7 +1587,7 @@ function renderProfileCard() {
   const defenseRank = getPowerProRankByTable('defense', tc > 0 ? (err / tc) : 0);
 
   const exactIp = getExactInnings(ps.ip);
-  const walksPerInning = exactIp > 0 ? ((ps.bb + ps.hbp) / exactIp) : 1.0;
+  const walksPerInning = exactIp > 0 ? (((ps.bb + ps.hbp) * regulationInnings) / exactIp) : 0;
   const avgInningsPerGame = ps.games > 0 ? (exactIp / ps.games) : 0;
   const controlRank = getPowerProRankByTable('control', walksPerInning);
   const staminaRank = getPowerProRankByTable('stamina', avgInningsPerGame);
@@ -1613,7 +1613,7 @@ function renderProfileCard() {
         <span>⚾ 投手能力 & フィジカル測定</span><span class="text-amber-300 print:text-slate-900 font-mono">最高球速: ${player.maxSpeed || '-'} km/h</span>
       </h3>
       <div class="space-y-1.5 text-xs print:text-[11px]">
-        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><div><span class="font-bold block">コントロール</span><span class="text-[10px] text-sky-300 print:text-slate-600">与四死球率: ${ps.ip > 0 ? walksPerInning.toFixed(2) : '0.00'}</span></div><span class="rank-badge rank-${controlRank}">${controlRank}</span></div>
+        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><div><span class="font-bold block">コントロール</span><span class="text-[10px] text-sky-300 print:text-slate-600">与四死球率 (${regulationInnings}回): ${exactIp > 0 ? walksPerInning.toFixed(2) : '0.00'}</span></div><span class="rank-badge rank-${controlRank}">${controlRank}</span></div>
         <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><div><span class="font-bold block">スタミナ</span><span class="text-[10px] text-slate-400 print:text-slate-600">平均: ${avgInningsPerGame.toFixed(1)}回/試合</span></div><span class="rank-badge rank-${staminaRank}">${staminaRank}</span></div>
         <div class="grid grid-cols-2 gap-1.5 text-[11px]">
           <div class="p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200 flex justify-between"><span class="text-slate-300 print:text-slate-600 font-bold">立ち幅跳び:</span><strong class="text-emerald-400 print:text-slate-900 font-mono">${player.broadJump ? player.broadJump + ' cm' : '-'}</strong></div>
@@ -1711,7 +1711,7 @@ function initDatabase() {
   createSheet(SHEETS.PHYSICAL, ["測定ID", "日時", "選手ID", "スイング速度", "1塁走タイム", "遠投", "最高球速", "立ち幅跳び", "ボックスジャンプ", "開脚前屈", "ブリッジ", "しゃがみ込み", "メディシンボール（前）", "メディシンボール（後）", "備考"]);
   createSheet(SHEETS.PITCHING, ["記録ID", "日時", "試合ID", "選手ID", "登板数", "勝利", "敗戦", "投球回数", "打者数", "被安打", "奪三振", "与四球", "与死球", "失点", "自責点", "球数", "被塁打", "備考"]);
   createSheet(SHEETS.BATTER_SUMMARY, ["選手ID", "氏名", "学年", "打席数", "打数", "安打", "二塁打", "三塁打", "本塁打", "打率", "出塁率", "長打率", "OPS", "打点", "得点", "四球", "死球", "三振", "犠打", "犠飛", "盗塁", "失策", "守備機会", "守備率"]);
-  createSheet(SHEETS.PITCHER_SUMMARY, ["選手ID", "氏名", "学年", "登板数", "勝利", "敗戦", "防御率(7回換算)", "投球回", "打者数", "被安打", "奪三振", "与四球", "与死球", "与四死球率", "失点", "自責点", "球数", "被塁打"]);
+  createSheet(SHEETS.PITCHER_SUMMARY, ["選手ID", "氏名", "学年", "登板数", "勝利", "敗戦", "防御率(7回換算)", "投球回", "打者数", "被安打", "奪三振", "与四球", "与死球", "与四死球率(7回換算)", "失点", "自責点", "球数", "被塁打"]);
   recalculateSummaries();
 }
 
@@ -1731,7 +1731,6 @@ function recalculateSummaries() {
       let pa = 0, ab = 0, h = 0, d = 0, t = 0, hr = 0, rbi = 0, r = 0, bb = 0, hbp = 0, so = 0, sh = 0, sf = 0, sbCount = 0, e = 0, tc = 0;
       for (let j = 1; j < bData.length; j++) {
         if (bData[j][3] == pid) {
-          // 🌟 1行集約フォーマット（列4〜19）または旧1行1打席フォーマットの双方に対応
           if (bData[j].length >= 20 && !isNaN(bData[j][4]) && !isNaN(bData[j][5])) {
             pa += Number(bData[j][4] || 0);
             ab += Number(bData[j][5] || 0);
@@ -1779,7 +1778,7 @@ function recalculateSummaries() {
       }
       if (games > 0 || totalExactIp > 0) {
         let era = totalExactIp > 0 ? ((er * REGULATION_INNINGS) / totalExactIp) : 0;
-        let wPerIp = totalExactIp > 0 ? ((bb + hbp) / totalExactIp) : 0;
+        let wPerIp = totalExactIp > 0 ? (((bb + hbp) * REGULATION_INNINGS) / totalExactIp) : 0;
         pSum.appendRow([pid, name, grade, games, wins, losses, era.toFixed(2), formatInningsGAS(totalExactIp), bf, h, so, bb, hbp, wPerIp.toFixed(2), r, er, pitches, tb]);
       }
     }
