@@ -292,7 +292,7 @@
         <div class="bg-slate-900/80 p-4 rounded-xl border border-sky-500/30">
           <h3 class="text-sm font-black text-amber-400 mb-3">👤 選手個別データ計測 (いつでも更新)</h3>
           <div class="space-y-3">
-            <div><label class="text-xs text-slate-300 font-bold block mb-1">対象選手</label><select id="testPlayerSelect" class="w-full bg-slate-800 border border-sky-400 rounded-lg p-2 text-sm text-white font-bold"></select></div>
+            <div><label class="text-xs text-slate-300 font-bold block mb-1">対象選手</label><select id="testPlayerSelect" class="w-full bg-slate-800 border border-sky-400 rounded-lg p-2 text-sm text-white font-bold" onchange="updatePhysicalFormPlaceholders()"></select></div>
             <div class="grid grid-cols-2 gap-2">
               <div><label class="text-xs text-slate-300 font-bold block">スイング速度 (km/h)</label><input type="number" id="testBatSpeed" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm text-white font-bold"></div>
               <div><label class="text-xs text-slate-300 font-bold block">1塁駆け抜け (秒)</label><input type="number" step="0.01" id="testRunTime" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm text-white font-bold"></div>
@@ -352,7 +352,7 @@
 
       <div class="hidden print:block border-b-2 border-slate-900 pb-2 mb-3">
         <div class="flex justify-between items-end">
-          <div><span class="text-xs font-bold text-slate-600 tracking-wider">高千穂中学校野球部 公式選手カルテ</span><h1 id="printPlayerHeaderName" class="text-2xl font-black text-slate-900">未選択</h1></div>
+          <div><span class="text-xs font-bold text-slate-600 tracking-wider">高千穂中学校野球部</span><h1 id="printPlayerHeaderName" class="text-2xl font-black text-slate-900">未選択</h1></div>
           <div class="text-right text-xs space-y-0.5 text-slate-700">
             <div><span class="font-bold">発行日:</span> <span id="printDateSpan"></span></div>
             <div id="printPlayerMetaInfo" class="font-bold">-</div>
@@ -748,6 +748,43 @@ function populateDropdowns() {
   setOpts("matchPitcherSelect", p => `<option value="${p.id}">${p.mainPos === '投手' ? '★' : ''}${p.name} (${p.grade}年 - ${p.mainPos})</option>`);
   setOpts("testPlayerSelect", p => `<option value="${p.id}">${p.name} (${p.grade}年)</option>`);
   setOpts("profilePlayerSelect", p => `<option value="${p.id}">${p.name} (${p.grade}年)</option>`);
+  updatePhysicalFormPlaceholders();
+}
+
+function updatePhysicalFormPlaceholders() {
+  const select = document.getElementById("testPlayerSelect");
+  if (!select) return;
+  const playerId = parseInt(select.value);
+  const player = players.find(p => p.id === playerId);
+
+  const setPh = (id, val, unit = "") => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (val !== null && val !== undefined && val !== "" && !isNaN(val)) {
+      el.placeholder = `${val}${unit ? ' ' + unit : ''}`;
+    } else {
+      el.placeholder = "未計測";
+    }
+  };
+
+  if (player) {
+    setPh("testBatSpeed", player.batSpeed, "km/h");
+    setPh("testRunTime", player.runTime, "秒");
+    setPh("testLongToss", player.longToss, "m");
+    setPh("testMaxSpeed", player.maxSpeed, "km/h");
+    setPh("testBroadJump", player.broadJump, "cm");
+    setPh("testBoxJump", player.boxJump, "cm");
+    setPh("testMedballFront", player.medballFront, "m");
+    setPh("testMedballBack", player.medballBack, "m");
+
+    const setSelectVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.value = val || "";
+    };
+    setSelectVal("testSplit", player.split);
+    setSelectVal("testBridge", player.bridge);
+    setSelectVal("testSquat", player.squat);
+  }
 }
 
 function onMatchChange() {
@@ -868,6 +905,7 @@ function switchTab(tabName) {
   document.getElementById(`tab-${tabName}-btn`)?.classList.add('active');
   if (tabName === 'profile') renderProfileCard();
   if (tabName === 'list') renderAllPlayersTable();
+  if (tabName === 'test') updatePhysicalFormPlaceholders();
 }
 
 function renderOrderView() {
@@ -1387,8 +1425,8 @@ function registerBatterQueue() {
 
   const totalInputCount = pendingBatterQueue.length;
   const rowCount = payloadRecords.length;
-  matchLogs.unshift(`[${new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}] 📦 ${totalInputCount}項目を【${rowCount}行にまとめて一括登録】 (${gasUrl ? '🌐 クラウド保存' : '💾 ローカル保存'})`);
-  document.getElementById("matchLogList").innerHTML = matchLogs.map(l => `<div class="p-1.5 bg-slate-800 rounded border border-slate-700 font-mono">${l}</div>`).join("");
+  ['testBatSpeed','testRunTime','testLongToss','testMaxSpeed','testBroadJump','testBoxJump','testMedballFront','testMedballBack'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+  updatePhysicalFormPlaceholders();
   renderOrderView();
   renderAllPlayersTable();
 
@@ -1546,6 +1584,7 @@ function savePhysicalTest() {
   };
 
   ['testBatSpeed','testRunTime','testLongToss','testMaxSpeed','testBroadJump','testBoxJump','testMedballFront','testMedballBack','testSplit','testBridge','testSquat'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+  updatePhysicalFormPlaceholders();
   renderOrderView();
   renderAllPlayersTable();
 
@@ -1601,79 +1640,134 @@ function renderProfileCard() {
   const errorRatePct = tc > 0 ? (err / tc * 100) : 0;
   const defenseRank = getPowerProRankByTable('defense', tc > 0 ? (err / tc) : 0);
 
+  const isPitcher = hasPitcherData(player);
   const exactIp = getExactInnings(ps.ip);
+  const hasPitched = ps.games > 0 || exactIp > 0;
   const walksPerInning = exactIp > 0 ? (((ps.bb + ps.hbp) * regulationInnings) / exactIp) : 0;
   const avgInningsPerGame = ps.games > 0 ? (exactIp / ps.games) : 0;
-  const controlRank = getPowerProRankByTable('control', walksPerInning);
-  const staminaRank = getPowerProRankByTable('stamina', avgInningsPerGame);
+  const controlRank = hasPitched ? getPowerProRankByTable('control', walksPerInning) : '-';
+  const staminaRank = hasPitched ? getPowerProRankByTable('stamina', avgInningsPerGame) : '-';
 
-  const era = exactIp > 0 ? ((ps.er * regulationInnings) / exactIp).toFixed(2) : "0.00";
-  const fieldingPct = tc > 0 ? (((tc - err) / tc) * 100).toFixed(1) : "100.0";
+  const era = exactIp > 0 ? ((ps.er * regulationInnings) / exactIp).toFixed(2) : (hasPitched ? "0.00" : "－");
+  const fieldingPct = tc > 0 ? (((tc - err) / tc) * 100).toFixed(1) : (s.pa > 0 || tc > 0 ? "100.0" : "－");
 
   cardContainer.innerHTML = `
-    <div class="print-card-box bg-slate-900/90 p-3.5 rounded-xl border border-sky-500/40">
-      <h3 class="text-xs md:text-sm font-black text-sky-300 print:text-slate-900 mb-2 flex justify-between items-center">
-        <span>⚔️ 野手能力パラメータ</span><span class="text-amber-300 print:text-slate-900 font-mono">OPS: ${player.ops ? player.ops.toFixed(3) : '0.000'}</span>
+    <div class="print-card-box bg-slate-900/90 p-4 rounded-xl border border-sky-500/40">
+      <h3 class="text-sm md:text-base font-black text-sky-300 print:text-slate-900 mb-3 flex justify-between items-center border-b border-sky-500/30 pb-1.5">
+        <span class="flex items-center gap-1.5">⚔️ 野手能力</span>
+        <span class="text-amber-300 print:text-slate-900 font-mono text-base font-black">OPS: ${player.ops ? player.ops.toFixed(3) : '.000'}</span>
       </h3>
-      <div class="space-y-1.5 text-xs print:text-[11px]">
-        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><span class="font-bold">ミート (打率: ${player.bat ? player.bat.toFixed(3) : '.000'})</span><span class="rank-badge rank-${meetRank}">${meetRank}</span></div>
-        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><span class="font-bold">パワー (スイング: ${player.batSpeed || '-'} km/h)</span><span class="rank-badge rank-${powerRank}">${powerRank}</span></div>
-        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><span class="font-bold">走力 (1塁タイム: ${player.runTime || '-'}秒)</span><span class="rank-badge rank-${speedRank}">${speedRank}</span></div>
-        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><span class="font-bold">肩力 (遠投: ${player.longToss || '-'} m)</span><span class="rank-badge rank-${shoulderRank}">${shoulderRank}</span></div>
-        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><span class="font-bold">守備力 (エラー率: ${errorRatePct.toFixed(1)}%)</span><span class="rank-badge rank-${defenseRank}">${defenseRank}</span></div>
-      </div>
-    </div>
-    <div class="print-card-box bg-slate-900/90 p-3.5 rounded-xl border border-sky-500/40">
-      <h3 class="text-xs md:text-sm font-black text-sky-400 print:text-slate-900 mb-2 flex justify-between items-center">
-        <span>⚾ 投手能力 & フィジカル測定</span><span class="text-amber-300 print:text-slate-900 font-mono">最高球速: ${player.maxSpeed || '-'} km/h</span>
-      </h3>
-      <div class="space-y-1.5 text-xs print:text-[11px]">
-        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><div><span class="font-bold block">コントロール</span><span class="text-[10px] text-sky-300 print:text-slate-600">与四死球率 (${regulationInnings}回): ${exactIp > 0 ? walksPerInning.toFixed(2) : '0.00'}</span></div><span class="rank-badge rank-${controlRank}">${controlRank}</span></div>
-        <div class="flex items-center justify-between p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200"><div><span class="font-bold block">スタミナ</span><span class="text-[10px] text-slate-400 print:text-slate-600">平均: ${avgInningsPerGame.toFixed(1)}回/試合</span></div><span class="rank-badge rank-${staminaRank}">${staminaRank}</span></div>
-        <div class="grid grid-cols-2 gap-1.5 text-[11px]">
-          <div class="p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200 flex justify-between"><span class="text-slate-300 print:text-slate-600 font-bold">立ち幅跳び:</span><strong class="text-emerald-400 print:text-slate-900 font-mono">${player.broadJump ? player.broadJump + ' cm' : '-'}</strong></div>
-          <div class="p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200 flex justify-between"><span class="text-slate-300 print:text-slate-600 font-bold">ボックスJ:</span><strong class="text-amber-300 print:text-slate-900 font-mono">${player.boxJump ? player.boxJump + ' cm' : '-'}</strong></div>
-          <div class="p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200 flex justify-between"><span class="text-slate-300 print:text-slate-600 font-bold">MB(前/後):</span><strong class="text-amber-300 print:text-slate-900 font-mono">${player.medballFront || '-'}m / ${player.medballBack || '-'}m</strong></div>
-          <div class="p-1.5 bg-slate-800 print:bg-slate-50 rounded border border-slate-700 print:border-slate-200 flex justify-between"><span class="text-slate-300 print:text-slate-600 font-bold">柔軟性:</span><strong class="text-emerald-400 print:text-slate-900">${player.split || '-'} / ${player.bridge || '-'} / ${player.squat || '-'}</strong></div>
+      <div class="space-y-2 text-sm print:text-xs">
+        <div class="flex items-center justify-between p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200">
+          <span class="font-black text-slate-200 print:text-slate-800 text-sm">ミート <span class="text-xs font-bold text-slate-400 print:text-slate-500 font-mono">(打率: ${player.bat ? player.bat.toFixed(3) : '.000'})</span></span>
+          <span class="rank-badge rank-${meetRank}">${meetRank}</span>
+        </div>
+        <div class="flex items-center justify-between p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200">
+          <span class="font-black text-slate-200 print:text-slate-800 text-sm">パワー <span class="text-xs font-bold text-slate-400 print:text-slate-500 font-mono">(スイング: ${player.batSpeed ? player.batSpeed + ' km/h' : '－'})</span></span>
+          <span class="rank-badge rank-${powerRank}">${powerRank}</span>
+        </div>
+        <div class="flex items-center justify-between p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200">
+          <span class="font-black text-slate-200 print:text-slate-800 text-sm">走力 <span class="text-xs font-bold text-slate-400 print:text-slate-500 font-mono">(1塁走: ${player.runTime ? player.runTime + ' 秒' : '－'})</span></span>
+          <span class="rank-badge rank-${speedRank}">${speedRank}</span>
+        </div>
+        <div class="flex items-center justify-between p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200">
+          <span class="font-black text-slate-200 print:text-slate-800 text-sm">肩力 <span class="text-xs font-bold text-slate-400 print:text-slate-500 font-mono">(遠投: ${player.longToss ? player.longToss + ' m' : '－'})</span></span>
+          <span class="rank-badge rank-${shoulderRank}">${shoulderRank}</span>
+        </div>
+        <div class="flex items-center justify-between p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200">
+          <span class="font-black text-slate-200 print:text-slate-800 text-sm">守備力 <span class="text-xs font-bold text-slate-400 print:text-slate-500 font-mono">(失策率: ${tc > 0 ? errorRatePct.toFixed(1) + '%' : '0.0%'})</span></span>
+          <span class="rank-badge rank-${defenseRank}">${defenseRank}</span>
         </div>
       </div>
     </div>
-    <div class="print-card-box bg-slate-900/90 p-3.5 rounded-xl border border-sky-500/40 md:col-span-2">
-      <h3 class="text-xs md:text-sm font-black text-amber-400 print:text-slate-900 mb-2 flex justify-between items-center"><span>⚔️ 野手打撃・守備全16項目集計</span><span class="text-sky-300 print:text-slate-900 font-bold">守備率: ${fieldingPct}%</span></h3>
-      <div class="grid grid-cols-4 sm:grid-cols-8 gap-1.5 text-center text-xs print:text-[10px]">
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">打席数</span><strong class="text-white print:text-slate-900 font-mono">${s.pa}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">打数</span><strong class="text-white print:text-slate-900 font-mono">${s.ab}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">安打</span><strong class="text-amber-300 print:text-slate-900 font-mono">${s.h}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">二塁打</span><strong class="text-amber-300 print:text-slate-900 font-mono">${s.double}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">三塁打</span><strong class="text-amber-300 print:text-slate-900 font-mono">${s.triple}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">本塁打</span><strong class="text-rose-400 print:text-slate-900 font-mono">${s.hr}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">得点</span><strong class="text-emerald-400 print:text-slate-900 font-mono">${s.r}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">打点</span><strong class="text-emerald-400 print:text-slate-900 font-mono">${s.rbi}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">三振</span><strong class="text-sky-300 print:text-slate-900 font-mono">${s.so}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">四球</span><strong class="text-sky-300 print:text-slate-900 font-mono">${s.bb}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">死球</span><strong class="text-sky-300 print:text-slate-900 font-mono">${s.hbp}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">犠打</span><strong class="text-white print:text-slate-900 font-mono">${s.sh}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">犠飛</span><strong class="text-white print:text-slate-900 font-mono">${s.sf}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">盗塁</span><strong class="text-indigo-300 print:text-slate-900 font-mono">${s.sb}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">失策</span><strong class="text-rose-400 print:text-slate-900 font-mono">${s.e}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">守備機会</span><strong class="text-white print:text-slate-900 font-mono">${s.tc}</strong></div>
+
+    <div class="print-card-box bg-slate-900/90 p-4 rounded-xl border border-sky-500/40">
+      <h3 class="text-sm md:text-base font-black text-sky-400 print:text-slate-900 mb-3 flex justify-between items-center border-b border-sky-500/30 pb-1.5">
+        <span class="flex items-center gap-1.5">⚾ 投手能力 & フィジカル測定</span>
+        <span class="text-amber-300 print:text-slate-900 font-mono text-base font-black">最高球速: ${player.maxSpeed ? player.maxSpeed + ' km/h' : '－'}</span>
+      </h3>
+      <div class="space-y-2 text-sm print:text-xs">
+        <div class="flex items-center justify-between p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200">
+          <div>
+            <span class="font-black text-slate-200 print:text-slate-800 text-sm block">コントロール</span>
+            <span class="text-xs text-sky-300 print:text-slate-600 font-bold font-mono">与四死球率 (${regulationInnings}回): ${hasPitched && exactIp > 0 ? walksPerInning.toFixed(2) : '－'}</span>
+          </div>
+          <span class="rank-badge ${controlRank !== '-' ? `rank-${controlRank}` : 'text-slate-500'}">${controlRank}</span>
+        </div>
+        <div class="flex items-center justify-between p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200">
+          <div>
+            <span class="font-black text-slate-200 print:text-slate-800 text-sm block">スタミナ</span>
+            <span class="text-xs text-slate-400 print:text-slate-600 font-bold font-mono">平均投球回: ${hasPitched ? avgInningsPerGame.toFixed(1) + ' 回/試合' : '－'}</span>
+          </div>
+          <span class="rank-badge ${staminaRank !== '-' ? `rank-${staminaRank}` : 'text-slate-500'}">${staminaRank}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 pt-0.5 text-xs sm:text-sm">
+          <div class="p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200 flex justify-between items-center">
+            <span class="text-slate-300 print:text-slate-700 font-bold">立ち幅跳び:</span>
+            <strong class="text-emerald-400 print:text-slate-900 font-mono text-sm font-black">${player.broadJump ? player.broadJump + ' cm' : '－'}</strong>
+          </div>
+          <div class="p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200 flex justify-between items-center">
+            <span class="text-slate-300 print:text-slate-700 font-bold">ボックスJ:</span>
+            <strong class="text-amber-300 print:text-slate-900 font-mono text-sm font-black">${player.boxJump ? player.boxJump + ' cm' : '－'}</strong>
+          </div>
+          <div class="p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200 flex justify-between items-center">
+            <span class="text-slate-300 print:text-slate-700 font-bold">MB(前/後):</span>
+            <strong class="text-amber-300 print:text-slate-900 font-mono text-xs sm:text-sm font-black">${player.medballFront || '－'}m / ${player.medballBack || '－'}m</strong>
+          </div>
+          <div class="p-2 bg-slate-800 print:bg-slate-50 rounded-lg border border-slate-700 print:border-slate-200 flex justify-between items-center">
+            <span class="text-slate-300 print:text-slate-700 font-bold">柔軟性:</span>
+            <strong class="text-emerald-400 print:text-slate-900 text-xs sm:text-sm font-black">${player.split || '－'} / ${player.bridge || '－'} / ${player.squat || '－'}</strong>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="print-card-box bg-slate-900/90 p-3.5 rounded-xl border border-sky-500/40 md:col-span-2">
-      <h3 class="text-xs md:text-sm font-black text-sky-400 print:text-slate-900 mb-2 flex justify-between items-center"><span>⚾ 投手試合成績全14項目集計</span><span class="text-emerald-400 print:text-slate-900 font-bold">防御率: ${era} <span class="text-slate-400 print:text-slate-600 font-normal">(与四死球率: ${ps.ip > 0 ? walksPerInning.toFixed(2) : '0.00'})</span></span></h3>
-      <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-center text-xs print:text-[10px]">
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">登板数</span><strong class="text-amber-300 print:text-slate-900 font-mono">${ps.games}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">勝利</span><strong class="text-emerald-400 print:text-slate-900 font-mono">${ps.wins}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">敗戦</span><strong class="text-rose-400 print:text-slate-900 font-mono">${ps.losses}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">投球回数</span><strong class="text-white print:text-slate-900 font-mono">${formatInnings(ps.ip)}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">打者数</span><strong class="text-white print:text-slate-900 font-mono">${ps.bf}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">被安打</span><strong class="text-rose-300 print:text-slate-900 font-mono">${ps.h}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">奪三振</span><strong class="text-amber-300 print:text-slate-900 font-mono">${ps.so}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">与四球</span><strong class="text-sky-300 print:text-slate-900 font-mono">${ps.bb}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">与死球</span><strong class="text-sky-300 print:text-slate-900 font-mono">${ps.hbp}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">失点</span><strong class="text-rose-400 print:text-slate-900 font-mono">${ps.r}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">自責点</span><strong class="text-rose-500 print:text-slate-900 font-mono">${ps.er}</strong></div>
-        <div class="bg-slate-800 print:bg-slate-50 p-1.5 rounded border border-slate-700 print:border-slate-200"><span class="text-slate-400 print:text-slate-600 block text-[9px]">被塁打</span><strong class="text-slate-300 print:text-slate-900 font-mono">${ps.tb}</strong></div>
+
+    <div class="print-card-box bg-slate-900/90 p-4 rounded-xl border border-sky-500/40 md:col-span-2">
+      <h3 class="text-sm md:text-base font-black text-amber-400 print:text-slate-900 mb-3 flex justify-between items-center border-b border-amber-500/30 pb-1.5">
+        <span class="flex items-center gap-1.5">⚔️ 野手記録集計</span>
+        <span class="text-sky-300 print:text-slate-900 font-black text-sm">守備率: <span class="font-mono text-base">${fieldingPct}${fieldingPct !== '－' ? '%' : ''}</span></span>
+      </h3>
+      <div class="grid grid-cols-4 sm:grid-cols-8 gap-2 text-center text-xs">
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">打席数</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.pa}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">打数</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.ab}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">安打</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.h}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">二塁打</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.double}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">三塁打</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.triple}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">本塁打</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.hr}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">得点</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.r}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">打点</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.rbi}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">三振</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.so}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">四球</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.bb}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">死球</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.hbp}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">犠打</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.sh}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">犠飛</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.sf}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">盗塁</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.sb}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">失策</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.e}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">守備機会</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${s.tc}</strong></div>
+      </div>
+    </div>
+
+    <div class="print-card-box bg-slate-900/90 p-4 rounded-xl border border-sky-500/40 md:col-span-2">
+      <h3 class="text-sm md:text-base font-black text-sky-400 print:text-slate-900 mb-3 flex justify-between items-center border-b border-sky-500/30 pb-1.5">
+        <span class="flex items-center gap-1.5">⚾ 投手記録集計</span>
+        <span class="text-emerald-400 print:text-slate-900 font-black text-sm">
+          防御率: <span class="font-mono text-base">${era}</span> 
+          <span class="text-slate-400 print:text-slate-600 font-bold text-xs ml-1">(与四死球率: <span class="font-mono">${hasPitched && exactIp > 0 ? walksPerInning.toFixed(2) : '－'}</span>)</span>
+        </span>
+      </h3>
+      <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-xs">
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">登板数</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.games : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">勝利</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.wins : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">敗戦</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.losses : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">投球回数</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? formatInnings(ps.ip) : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">打者数</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.bf : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">被安打</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.h : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">奪三振</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.so : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">与四球</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.bb : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">与死球</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.hbp : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">失点</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.r : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">自責点</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.er : '－'}</strong></div>
+        <div class="bg-slate-800 print:bg-slate-50 p-2 rounded-lg border border-slate-700 print:border-slate-200 flex flex-col justify-center"><span class="text-slate-400 print:text-slate-600 block text-[10px] print:text-[11px] font-bold">被塁打</span><strong class="text-white print:text-slate-900 font-mono text-base sm:text-lg md:text-xl print:text-lg font-black">${hasPitched ? ps.tb : '－'}</strong></div>
       </div>
     </div>
   `;
